@@ -6,6 +6,8 @@ import android.os.Build;
 import android.util.Log;
 import java.lang.reflect.Field;
 
+import javax.microedition.khronos.opengles.GL10;
+
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
@@ -29,8 +31,11 @@ public class processHook implements IXposedHookLoadPackage {
         }
 
         hookIMEI(lpparam);
+        hookSerial(lpparam);
         hookDRM(lpparam);
         hookGAID(lpparam);
+        hookAndroidId(lpparam);
+        hookOpenGL(lpparam);
     }
 
     private void spoofDeviceProperties(deviceInfo properties) {
@@ -81,11 +86,21 @@ public class processHook implements IXposedHookLoadPackage {
     private void hookIMEI(final XC_LoadPackage.LoadPackageParam lpparam) {
         try {
             Class<?> telephony = XposedHelpers.findClass("android.telephony.TelephonyManager", lpparam.classLoader);
-            final String fakeImei = "867530912345678";
+            final String fakeImei1 = "067530912345678";
+            final String fakeImei2 = "077530912345679";
 
             XC_MethodHook hook = new XC_MethodHook() {
                 protected void afterHookedMethod(MethodHookParam param) {
-                    param.setResult(fakeImei);
+                    if (param.args.length == 1 && param.args[0] instanceof Integer) {
+                        int slot = (int) param.args[0];
+                        if (slot == 0) {
+                            param.setResult(fakeImei1);
+                        } else if (slot == 1) {
+                            param.setResult(fakeImei2);
+                        }
+                    } else {
+                        param.setResult(fakeImei1); // Default
+                    }
                 }
             };
 
@@ -96,6 +111,17 @@ public class processHook implements IXposedHookLoadPackage {
             XposedBridge.log("IMEI Hook fail: " + t.getMessage());
         }
     }
+    
+
+    private void hookSerial(final XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            Field serialField = Build.class.getDeclaredField("SERIAL");
+            serialField.setAccessible(true);
+            serialField.set(null, "38bf25a445ab2f8e");
+        } catch (Throwable t) {
+            XposedBridge.log("Serial Hook fail: " + t.getMessage());
+        }
+    }
 
     private void hookDRM(final XC_LoadPackage.LoadPackageParam lpparam) {
         try {
@@ -104,7 +130,7 @@ public class processHook implements IXposedHookLoadPackage {
             XposedBridge.hookAllMethods(mediaDrm, "getPropertyByteArray", new XC_MethodHook() {
                     protected void afterHookedMethod(MethodHookParam param) {
                         if ("deviceUniqueId".equals(param.args[0])) {
-                            param.setResult("FAKEDRM12345678".getBytes());
+                            param.setResult("BTHjXRK4w0phs/M2bKISGA==".getBytes());
                         }
                     }
                 });
@@ -119,11 +145,57 @@ public class processHook implements IXposedHookLoadPackage {
 
             XposedBridge.hookAllMethods(infoClass, "getId", new XC_MethodHook() {
                     protected void afterHookedMethod(MethodHookParam param) {
-                        param.setResult("12345678-1234-1234-1234-1234567890ab");
+                        param.setResult("29f82bf3-8f62-403d-9a25-56044dcd8273");
                     }
                 });
         } catch (Throwable t) {
             XposedBridge.log("GAID Hook fail: " + t.getMessage());
         }
     }
-} 
+
+    private void hookAndroidId(final XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            Class<?> settingsSecure = XposedHelpers.findClass("android.provider.Settings$Secure", lpparam.classLoader);
+            XposedBridge.hookAllMethods(settingsSecure, "getString", new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        if ("android_id".equals(param.args[1])) {
+                            param.setResult("317ffdda75b8970d");
+                        }
+                    }
+                });
+        } catch (Throwable t) {
+            XposedBridge.log("Android ID Hook fail: " + t.getMessage());
+        }
+    }
+
+    private void hookOpenGL(final XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            Class<?> gl10 = XposedHelpers.findClass("android.opengl.GLES20", lpparam.classLoader);
+            final String fakeVersion = "OpenGL ES 3.2 v1.r32p1-01eac0.b99cf1793b111173c0bb23abcfef1974de4";
+            final String fakeVendor = "ARM";
+            final String fakeRenderer = "Mali-G68 ARX";
+
+            XposedBridge.hookAllMethods(gl10, "glGetString", new XC_MethodHook() {
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        int name = (Integer) param.args[0];
+                        switch (name) {
+                            case GL10.GL_VERSION:
+                                param.setResult(fakeVersion);
+                                break;
+                            case GL10.GL_VENDOR:
+                                param.setResult(fakeVendor);
+                                break;
+                            case GL10.GL_RENDERER:
+                                param.setResult(fakeRenderer);
+                                break;
+                            default:
+                                break;
+                        }
+                    }
+                });
+        } catch (Throwable t) {
+            XposedBridge.log("OpenGL Hook fail: " + t.getMessage());
+        }
+    }
+}
